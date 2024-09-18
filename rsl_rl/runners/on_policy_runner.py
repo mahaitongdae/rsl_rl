@@ -35,10 +35,12 @@ import statistics
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
+import rsl_rl
 
 from rsl_rl.algorithms import PPO
 from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
+from rsl_rl.utils import store_code_state
 
 
 class OnPolicyRunner:
@@ -77,6 +79,7 @@ class OnPolicyRunner:
         self.tot_timesteps = 0
         self.tot_time = 0
         self.current_learning_iteration = 0
+        self.git_status_repos = [rsl_rl.__file__]
 
         _, _ = self.env.reset()
     
@@ -97,6 +100,7 @@ class OnPolicyRunner:
         lenbuffer = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+        start_iter = self.current_learning_iteration
 
         tot_iter = self.current_learning_iteration + num_learning_iterations
         for it in range(self.current_learning_iteration, tot_iter):
@@ -137,6 +141,13 @@ class OnPolicyRunner:
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
+            if it == start_iter:
+                # obtain all the diff files
+                git_file_paths = store_code_state(self.log_dir, self.git_status_repos)
+                # if possible store them to wandb
+                # if self.logger_type in ["wandb", "neptune"] and git_file_paths:
+                #     for path in git_file_paths:
+                #         self.writer.save_file(path)
         
         self.current_learning_iteration += num_learning_iterations
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
@@ -224,6 +235,7 @@ class OnPolicyRunner:
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
+        self.load_path = path
         return loaded_dict['infos']
 
     def get_inference_policy(self, device=None):
